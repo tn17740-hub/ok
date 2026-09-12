@@ -1,0 +1,465 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>⚡ Electric Power Game by ด.ญ. พรรธน์มน สมสุข ⚡</title>
+    <!-- นำเข้า Tailwind CSS สำหรับการจัดรูปแบบ -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- นำเข้า MediaPipe Libraries -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/holistic/holistic.js" crossorigin="anonymous"></script>
+    <!-- นำเข้า Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Mitr:wght@400;600&display=swap" rel="stylesheet">
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #0f172a;
+            font-family: 'Mitr', sans-serif;
+            color: white;
+            user-select: none;
+        }
+        #gameCanvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            z-index: 1;
+        }
+        #videoElement {
+            display: none; /* ซ่อนวิดีโอต้นฉบับ เราจะวาดลง Canvas แทน */
+        }
+        .ui-layer {
+            position: absolute;
+            z-index: 10;
+            pointer-events: none; /* ให้คลิกทะลุ UI ไปได้ */
+        }
+        /* เอฟเฟกต์ตัวอักษรเรืองแสง */
+        .glow-text {
+            text-shadow: 0 0 10px rgba(255,255,255,0.8), 0 0 20px cyan, 0 0 30px blue;
+        }
+        .glow-red {
+            text-shadow: 0 0 10px rgba(255,255,255,0.8), 0 0 20px #ef4444, 0 0 30px #b91c1c;
+        }
+        #loadingScreen {
+            position: absolute;
+            top: 0; left: 0; width: 100vw; height: 100vh;
+            background: rgba(15, 23, 42, 0.95);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 50;
+        }
+        .spinner {
+            border: 8px solid rgba(255, 255, 255, 0.1);
+            border-top: 8px solid #06b6d4;
+            border-radius: 50%;
+            width: 60px;
+            height: 60px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    </style>
+</head>
+<body>
+
+    <!-- หน้าจอโหลด -->
+    <div id="loadingScreen">
+        <div class="spinner mb-6"></div>
+        <h2 class="text-3xl font-bold glow-text mb-2">⚡ กำลังโหลดระบบพลังจิต ⚡</h2>
+        <p class="text-gray-300">กรุณารอสักครู่ และ "อนุญาต" การใช้งานกล้อง...</p>
+        <p class="text-gray-400 text-sm mt-4">ผู้จัดทำ: ด.ญ. พรรธน์มน สมสุข ม.3/3 เลขที่ 12</p>
+    </div>
+
+    <!-- UI ของเกม -->
+    <div class="ui-layer top-4 left-4">
+        <div class="bg-black/50 p-4 rounded-xl backdrop-blur-sm border border-cyan-500/30">
+            <h1 class="text-2xl font-bold text-cyan-400">⚡ คะแนน: <span id="scoreDisplay">0</span></h1>
+            <p class="text-sm text-gray-300 mt-1">เป้าหมาย: โจมตีมอนสเตอร์ด้วยพลังไฟฟ้า!</p>
+        </div>
+    </div>
+
+    <div class="ui-layer top-4 right-4 text-right">
+        <div class="bg-black/50 p-4 rounded-xl backdrop-blur-sm border border-pink-500/30">
+            <h2 class="text-xl font-bold text-pink-400 glow-text">🎮 ผู้จัดทำ</h2>
+            <p class="text-lg text-white">ด.ญ. พรรธน์มน สมสุข</p>
+            <p class="text-md text-gray-300">ม.3/3 เลขที่ 12</p>
+        </div>
+    </div>
+
+    <div class="ui-layer bottom-8 left-1/2 -translate-x-1/2 w-full max-w-2xl px-4">
+        <div class="bg-black/70 p-6 rounded-2xl backdrop-blur-md border border-gray-600 flex justify-between items-center">
+            <!-- สถานะท่าทางมือ -->
+            <div class="flex-1 text-center border-r border-gray-600">
+                <p class="text-gray-400 text-sm mb-1">พลังไฟฟ้าที่ใช้ (ท่ามือ)</p>
+                <div id="gestureDisplay" class="text-3xl font-bold text-cyan-400 glow-text">-</div>
+            </div>
+            <!-- สถานะความโกรธ -->
+            <div class="flex-1 text-center">
+                <p class="text-gray-400 text-sm mb-1">ระดับความรุนแรง (สีหน้า)</p>
+                <div id="angerDisplay" class="text-3xl font-bold text-green-400">-</div>
+                <p id="multiplierDisplay" class="text-sm text-yellow-300 mt-1">ดาเมจ x1</p>
+            </div>
+        </div>
+        <div class="text-center mt-4">
+            <p class="text-sm text-gray-400">คำแนะนำ: กำมือ, แบมือ, หรือชู 1, 2, 3 นิ้ว เพื่อยิงพลัง และทำหน้าโกรธเพื่อเพิ่มความแรง!</p>
+        </div>
+    </div>
+
+    <!-- วิดีโอและ Canvas -->
+    <video id="videoElement" autoplay playsinline></video>
+    <canvas id="gameCanvas"></canvas>
+
+    <script>
+        const videoElement = document.getElementById('videoElement');
+        const canvasElement = document.getElementById('gameCanvas');
+        const canvasCtx = canvasElement.getContext('2d');
+        const loadingScreen = document.getElementById('loadingScreen');
+        
+        const scoreDisplay = document.getElementById('scoreDisplay');
+        const gestureDisplay = document.getElementById('gestureDisplay');
+        const angerDisplay = document.getElementById('angerDisplay');
+        const multiplierDisplay = document.getElementById('multiplierDisplay');
+
+        // ปรับขนาด Canvas ให้เต็มจอ
+        function resizeCanvas() {
+            canvasElement.width = window.innerWidth;
+            canvasElement.height = window.innerHeight;
+        }
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas();
+
+        // ตัวแปรของเกม
+        let score = 0;
+        let particles = [];
+        
+        // ข้อมูลศัตรูเป้าหมาย
+        let enemy = {
+            x: window.innerWidth / 2,
+            y: window.innerHeight / 3,
+            radius: 50,
+            hp: 100,
+            maxHp: 100,
+            color: '#ef4444',
+            vx: 2,
+            vy: 1,
+            wobble: 0
+        };
+
+        // สถานะพลังปัจจุบัน
+        let currentGesture = "ไม่มี";
+        let currentAngerMultiplier = 1;
+        let isAttacking = false;
+        let attackDmg = 0;
+        let attackColor = 'cyan';
+
+        // ฟังก์ชันวาดศัตรู
+        function drawEnemy() {
+            // อัปเดตตำแหน่งศัตรู (ให้ลอยไปมา)
+            enemy.wobble += 0.05;
+            enemy.x += enemy.vx;
+            enemy.y += enemy.vy + Math.sin(enemy.wobble) * 2;
+
+            if(enemy.x - enemy.radius < 0 || enemy.x + enemy.radius > canvasElement.width) enemy.vx *= -1;
+            if(enemy.y - enemy.radius < 0 || enemy.y + enemy.radius > canvasElement.height * 0.6) enemy.vy *= -1;
+
+            // วาดตัวศัตรู (เป็นรูปทรงพลังงาน)
+            canvasCtx.beginPath();
+            canvasCtx.arc(enemy.x, enemy.y, enemy.radius, 0, 2 * Math.PI);
+            canvasCtx.fillStyle = '#333';
+            canvasCtx.fill();
+            canvasCtx.lineWidth = 4;
+            canvasCtx.strokeStyle = enemy.color;
+            canvasCtx.stroke();
+
+            // วาดตาศัตรู
+            canvasCtx.fillStyle = enemy.color;
+            canvasCtx.beginPath();
+            canvasCtx.arc(enemy.x - 15, enemy.y - 10, 8, 0, 2 * Math.PI);
+            canvasCtx.arc(enemy.x + 15, enemy.y - 10, 8, 0, 2 * Math.PI);
+            canvasCtx.fill();
+
+            // วาดหลอดเลือด
+            const hpWidth = 100;
+            const hpPercent = enemy.hp / enemy.maxHp;
+            canvasCtx.fillStyle = 'rgba(0,0,0,0.5)';
+            canvasCtx.fillRect(enemy.x - hpWidth/2, enemy.y - enemy.radius - 20, hpWidth, 10);
+            canvasCtx.fillStyle = hpPercent > 0.5 ? '#22c55e' : (hpPercent > 0.2 ? '#eab308' : '#ef4444');
+            canvasCtx.fillRect(enemy.x - hpWidth/2, enemy.y - enemy.radius - 20, hpWidth * hpPercent, 10);
+        }
+
+        // ฟังก์ชันสร้างเอฟเฟกต์อนุภาคตอนศัตรูโดนโจมตี
+        function createParticles(x, y, color) {
+            for(let i = 0; i < 5; i++) {
+                particles.push({
+                    x: x, y: y,
+                    vx: (Math.random() - 0.5) * 10,
+                    vy: (Math.random() - 0.5) * 10,
+                    life: 1.0,
+                    color: color
+                });
+            }
+        }
+
+        // วาดเอฟเฟกต์อนุภาค
+        function drawParticles() {
+            for(let i = particles.length - 1; i >= 0; i--) {
+                let p = particles[i];
+                p.x += p.vx;
+                p.y += p.vy;
+                p.life -= 0.05;
+                
+                canvasCtx.globalAlpha = p.life;
+                canvasCtx.fillStyle = p.color;
+                canvasCtx.beginPath();
+                canvasCtx.arc(p.x, p.y, 4, 0, 2*Math.PI);
+                canvasCtx.fill();
+                canvasCtx.globalAlpha = 1.0;
+
+                if(p.life <= 0) particles.splice(i, 1);
+            }
+        }
+
+        // ฟังก์ชันวาดสายฟ้า (สายฟ้าแบบหยัก)
+        function drawLightning(x1, y1, x2, y2, color, thickness) {
+            canvasCtx.beginPath();
+            canvasCtx.moveTo(x1, y1);
+            
+            let distance = Math.hypot(x2 - x1, y2 - y1);
+            let segments = Math.floor(distance / 30);
+            let cx = x1, cy = y1;
+
+            for(let i = 1; i <= segments; i++) {
+                let r = i / segments;
+                let targetX = x1 + (x2 - x1) * r;
+                let targetY = y1 + (y2 - y1) * r;
+                
+                // สุ่มการหยักของสายฟ้า
+                let offsetX = (Math.random() - 0.5) * 40;
+                let offsetY = (Math.random() - 0.5) * 40;
+                
+                if (i === segments) { offsetX = 0; offsetY = 0; } // จุดปลายให้ตรงเป้าหมาย
+
+                canvasCtx.lineTo(targetX + offsetX, targetY + offsetY);
+            }
+
+            canvasCtx.strokeStyle = color;
+            canvasCtx.lineWidth = thickness;
+            canvasCtx.shadowBlur = 20;
+            canvasCtx.shadowColor = color;
+            canvasCtx.stroke();
+            canvasCtx.shadowBlur = 0; // รีเซ็ต
+        }
+
+        // คำนวณระยะห่างระหว่างจุด 2 จุด
+        function calcDistance(p1, p2) {
+            return Math.hypot(p1.x - p2.x, p1.y - p2.y);
+        }
+
+        // ตรวจจับท่าทางมือ (จำนวนนิ้วที่ชูขึ้น)
+        function detectHandGesture(landmarks) {
+            let fingersUp = 0;
+            
+            // ใช้จุดอ้างอิงข้อมือ (0) เป็นฐาน
+            const wrist = landmarks[0];
+            
+            // ตรวจนิ้วโป้ง (4) เทียบกับข้อต่อโคนนิ้วชี้ (5) และข้อต่อโคนนิ้วโป้ง (2)
+            // เป็นการประมาณอย่างง่ายสำหรับนิ้วโป้ง
+            if (calcDistance(landmarks[4], landmarks[9]) > calcDistance(landmarks[2], landmarks[9])) {
+                fingersUp++;
+            }
+            
+            // ตรวจนิ้วอื่นๆ (ชี้, กลาง, นาง, ก้อย) โดยดูว่าปลายติด (tip) อยู่สูงกว่าข้อต่อที่สอง (pip) หรือไม่
+            // ค่า Y น้อยแปลว่าอยู่สูงกว่า (พิกัดหน้าจอ)
+            if (landmarks[8].y < landmarks[6].y) fingersUp++;
+            if (landmarks[12].y < landmarks[10].y) fingersUp++;
+            if (landmarks[16].y < landmarks[14].y) fingersUp++;
+            if (landmarks[20].y < landmarks[18].y) fingersUp++;
+
+            return fingersUp;
+        }
+
+        // ตรวจจับความโกรธจากใบหน้า (ระยะห่างระหว่างคิ้ว)
+        function detectAnger(faceLandmarks) {
+            // จุด 107 = หัวคิ้วซ้ายด้านใน, จุด 336 = หัวคิ้วขวาด้านใน
+            // จุด 234 = แก้มซ้ายสุด, จุด 454 = แก้มขวาสุด
+            let browInnerLeft = faceLandmarks[107];
+            let browInnerRight = faceLandmarks[336];
+            let faceLeft = faceLandmarks[234];
+            let faceRight = faceLandmarks[454];
+
+            let browDistance = calcDistance(browInnerLeft, browInnerRight);
+            let faceWidth = calcDistance(faceLeft, faceRight);
+            
+            // สัดส่วนระยะห่างคิ้วต่อความกว้างหน้า
+            let ratio = browDistance / faceWidth;
+            
+            // ปกติ ratio จะประมาณ 0.14 - 0.17
+            // เวลาโกรธ (ขมวดคิ้ว) ratio จะลดลงต่ำกว่า 0.12
+            if (ratio < 0.11) {
+                return { level: "โกรธมาก!! 😡", multiplier: 3, color: '#ef4444' }; // สีแดง
+            } else if (ratio < 0.13) {
+                return { level: "เริ่มโกรธ 😠", multiplier: 1.5, color: '#f59e0b' }; // สีส้ม
+            } else {
+                return { level: "ปกติ 😐", multiplier: 1, color: '#22c55e' }; // สีเขียว
+            }
+        }
+
+        // ฟังก์ชันประมวลผลข้อมูลที่ได้จาก MediaPipe
+        function onResults(results) {
+            // ปิดหน้าจอโหลดเมื่อข้อมูลเฟรมแรกมาถึง
+            if (loadingScreen.style.display !== 'none') {
+                loadingScreen.style.display = 'none';
+            }
+
+            // ลบภาพเก่า
+            canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+            
+            // วาดภาพวิดีโอจากกล้อง (กลับซ้ายขวาให้เป็นกระจก)
+            canvasCtx.save();
+            canvasCtx.scale(-1, 1);
+            canvasCtx.translate(-canvasElement.width, 0);
+            canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
+            canvasCtx.restore();
+
+            isAttacking = false;
+            let emotion = { level: "ไม่พบใบหน้า", multiplier: 1, color: '#9ca3af' };
+
+            // 1. วิเคราะห์ใบหน้า (ความโกรธ)
+            if (results.faceLandmarks) {
+                emotion = detectAnger(results.faceLandmarks);
+                currentAngerMultiplier = emotion.multiplier;
+                
+                angerDisplay.innerText = emotion.level;
+                angerDisplay.style.color = emotion.color;
+                multiplierDisplay.innerText = `พลังดาเมจ x${emotion.multiplier}`;
+                if(emotion.multiplier > 1) {
+                    angerDisplay.classList.add('glow-red');
+                } else {
+                    angerDisplay.classList.remove('glow-red');
+                }
+            }
+
+            // 2. วิเคราะห์มือ (เลือกแค่มือใดมือหนึ่งที่ชัดเจนกว่า)
+            let activeHand = results.rightHandLandmarks || results.leftHandLandmarks;
+            
+            if (activeHand) {
+                // แปลงพิกัดมือให้ตรงกับหน้าจอ (เนื่องจากเราพลิกกล้องซ้ายขวา ต้องพลิกพิกัด x ด้วย)
+                const handX = (1 - activeHand[9].x) * canvasElement.width; 
+                const handY = activeHand[9].y * canvasElement.height;
+
+                let fingers = detectHandGesture(activeHand);
+                
+                // แปลงจำนวนนิ้วเป็นท่าทางและดาเมจ
+                if (fingers === 0) {
+                    currentGesture = "กำมือ (ลูกไฟสายฟ้า)";
+                    attackDmg = 2;
+                    attackColor = '#facc15'; // เหลือง
+                    isAttacking = true;
+                } else if (fingers === 1) {
+                    currentGesture = "1 นิ้ว (ช็อตเบา)";
+                    attackDmg = 0.5;
+                    attackColor = '#60a5fa'; // ฟ้าอ่อน
+                    isAttacking = true;
+                } else if (fingers === 2) {
+                    currentGesture = "2 นิ้ว (ช็อตคู่)";
+                    attackDmg = 1.0;
+                    attackColor = '#3b82f6'; // น้ำเงิน
+                    isAttacking = true;
+                } else if (fingers === 3) {
+                    currentGesture = "3 นิ้ว (ช็อตรุนแรง)";
+                    attackDmg = 1.5;
+                    attackColor = '#8b5cf6'; // ม่วง
+                    isAttacking = true;
+                } else if (fingers === 5 || fingers === 4) { // 4 หรือ 5 ถือว่าแบมือ
+                    currentGesture = "แบมือ (เลเซอร์มหาประลัย)";
+                    attackDmg = 3;
+                    attackColor = '#ec4899'; // ชมพู
+                    isAttacking = true;
+                } else {
+                    currentGesture = "เตรียมพร้อม";
+                    isAttacking = false;
+                }
+
+                gestureDisplay.innerText = currentGesture;
+                
+                // หากกำลังโจมตี ให้วาดยิงสายฟ้าและลดเลือดศัตรู
+                if (isAttacking) {
+                    let totalDmg = attackDmg * currentAngerMultiplier;
+                    
+                    // ปรับสีสายฟ้าถ้าโกรธมาก
+                    let finalColor = currentAngerMultiplier > 1 ? '#ef4444' : attackColor; 
+                    
+                    // วาดสายฟ้าหลายเส้นตามระดับความโกรธ
+                    let lines = currentAngerMultiplier === 3 ? 5 : (currentAngerMultiplier === 1.5 ? 3 : 1);
+                    for(let i=0; i<lines; i++) {
+                        drawLightning(handX, handY, enemy.x, enemy.y, finalColor, 3 + (currentAngerMultiplier*2));
+                    }
+                    
+                    // ลดเลือดศัตรู
+                    enemy.hp -= totalDmg;
+                    createParticles(enemy.x, enemy.y, finalColor);
+                }
+            } else {
+                gestureDisplay.innerText = "ไม่พบมือ";
+            }
+
+            // จัดการศัตรู
+            drawEnemy();
+            drawParticles();
+
+            // ถ้าศัตรูตาย
+            if (enemy.hp <= 0) {
+                score += 100;
+                scoreDisplay.innerText = score;
+                // สร้างศัตรูตัวใหม่ แข็งแกร่งขึ้นนิดหน่อย
+                enemy.maxHp += 50;
+                enemy.hp = enemy.maxHp;
+                enemy.x = Math.random() * (canvasElement.width - 200) + 100;
+                enemy.y = Math.random() * (canvasElement.height/2) + 50;
+                enemy.vx = (Math.random() > 0.5 ? 1 : -1) * (2 + Math.random()*3);
+                // ระเบิดอนุภาคชุดใหญ่
+                for(let i=0; i<30; i++) createParticles(enemy.x, enemy.y, '#ffffff');
+            }
+        }
+
+        // ตั้งค่า MediaPipe Holistic
+        const holistic = new Holistic({locateFile: (file) => {
+            return `https://cdn.jsdelivr.net/npm/@mediapipe/holistic/${file}`;
+        }});
+        
+        holistic.setOptions({
+            modelComplexity: 1,      // ความแม่นยำระดับกลางเพื่อให้ไม่กระตุกเกินไป
+            smoothLandmarks: true,
+            enableSegmentation: false,
+            smoothSegmentation: false,
+            refineFaceLandmarks: true, // สำคัญสำหรับการวิเคราะห์คิ้วที่แม่นยำขึ้น
+            minDetectionConfidence: 0.5,
+            minTrackingConfidence: 0.5
+        });
+        
+        holistic.onResults(onResults);
+
+        // ตั้งค่ากล้อง
+        const camera = new Camera(videoElement, {
+            onFrame: async () => {
+                await holistic.send({image: videoElement});
+            },
+            width: 1280,
+            height: 720
+        });
+        
+        // เริ่มต้นใช้งานกล้อง
+        camera.start().catch(err => {
+            alert("ไม่สามารถเข้าถึงกล้องได้ กรุณาอนุญาตให้เบราว์เซอร์ใช้งานกล้องครับ");
+            console.error(err);
+        });
+
+    </script>
+</body>
+</html>
